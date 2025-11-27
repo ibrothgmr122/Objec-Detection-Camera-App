@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Detection Camera</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ml5@latest/dist/ml5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+        }
+        
+        #camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #00ff00;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-width: 300px;
+            border: 2px solid #00ff00;
+            z-index: 10;
+        }
+        
+        .info-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            text-transform: uppercase;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            background: #00ff00;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        
+        .detection-list {
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        
+        .detection-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: rgba(0, 255, 0, 0.1);
+            border-left: 3px solid #00ff00;
+            padding-left: 8px;
+        }
+        
+        .confidence {
+            color: #ffff00;
+            font-weight: bold;
+        }
+        
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 10;
+        }
+        
+        .btn {
+            background: rgba(0, 255, 0, 0.9);
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+        
+        .btn:hover {
+            background: #00ff00;
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 100, 100, 0.9);
+        }
+        
+        .btn-secondary:hover {
+            background: #ff6464;
+            box-shadow: 0 0 20px rgba(255, 100, 100, 0.8);
+        }
+        
+        .confidence-bar {
+            display: inline-block;
+            width: 60px;
+            height: 6px;
+            background: rgba(0, 255, 0, 0.3);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-left: 5px;
+            vertical-align: middle;
+        }
+        
+        .confidence-bar-fill {
+            height: 100%;
+            background: #00ff00;
+            transition: width 0.3s;
+        }
+        
+        .top-detection {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #ff0000;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            z-index: 10;
+            min-width: 200px;
+        }
+        
+        .top-detection h4 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: #ffff00;
+            text-transform: uppercase;
+        }
+        
+        .top-detection-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff0000;
+            margin: 10px 0;
+        }
+        
+        .top-detection-confidence {
+            font-size: 18px;
+            color: #00ff00;
+        }
+        
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .crosshair::before,
+        .crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 255, 0, 0.5);
+        }
+        
+        .crosshair::before {
+            width: 30px;
+            height: 2px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .crosshair::after {
+            width: 2px;
+            height: 30px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+    <div id="camera-container">
+        <video id="video" playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div class="crosshair"></div>
+        
+        <div class="info-panel">
+            <h3>⚡ Detection System</h3>
+            <div class="status-badge" id="status">INITIALIZING</div>
+            <div class="detection-list" id="detection-list">
+                <div style="color: #ffff00;">Waiting for objects...</div>
+            </div>
+        </div>
+        
+        <div class="top-detection" id="top-detection" style="display: none;">
+            <h4>🎯 Primary Target</h4>
+            <div class="top-detection-name" id="top-name">---</div>
+            <div class="top-detection-confidence" id="top-confidence">0%</div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn" id="toggle-btn">🎥 STOP</button>
+            <button class="btn btn-secondary" id="reset-btn">🔄 RESET</button>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let detectionList = document.getElementById('detection-list');
+        let statusBadge = document.getElementById('status');
+        let toggleBtn = document.getElementById('toggle-btn');
+        let resetBtn = document.getElementById('reset-btn');
+        let topDetection = document.getElementById('top-detection');
+        let topName = document.getElementById('top-name');
+        let topConfidence = document.getElementById('top-confidence');
+        
+        let detector = null;
+        let isDetecting = true;
+        let videoStream = null;
+        let detections = [];
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Initialize COCO-SSD for object detection
+        async function initializeDetector() {
+            try {
+                statusBadge.textContent = 'LOADING MODEL';
+                detector = await ml5.objectDetector('cocossd', () => {
+                    statusBadge.textContent = 'READY';
+                    statusBadge.style.background = '#00ff00';
+                    startCamera();
+                });
+            } catch (error) {
+                console.error('Error initializing detector:', error);
+                statusBadge.textContent = 'ERROR';
+                statusBadge.style.background = '#ff0000';
+            }
+        }
+        
+        // Start camera stream
+        async function startCamera() {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = videoStream;
+                video.play();
+                
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    startDetection();
+                };
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                statusBadge.textContent = 'NO CAMERA';
+                statusBadge.style.background = '#ff0000';
+                detectionList.innerHTML = '<div style="color: #ff0000;">Camera access denied</div>';
+            }
+        }
+        
+        // Main detection loop
+        function startDetection() {
+            function detect() {
+                if (isDetecting && detector && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    detector.detect(video, (results) => {
+                        detections = results;
+                        drawDetections();
+                        updateDetectionList();
+                    });
+                }
+                requestAnimationFrame(detect);
+            }
+            detect();
+        }
+        
+        // Draw bounding boxes on canvas
+        function drawDetections() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            detections.forEach((detection, index) => {
+                const x = detection.x;
+                const y = detection.y;
+                const w = detection.width;
+                const h = detection.height;
+                const label = detection.label;
+                const confidence = (detection.confidence * 100).toFixed(1);
+                
+                // Draw bounding box
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, w, h);
+                
+                // Draw filled rectangle for label background
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.9)';
+                ctx.font = 'bold 14px Courier New';
+                const textWidth = ctx.measureText(`${label} ${confidence}%`).width;
+                ctx.fillRect(x, y - 25, textWidth + 10, 25);
+                
+                // Draw label text
+                ctx.fillStyle = '#000';
+                ctx.fillText(`${label} ${confidence}%`, x + 5, y - 8);
+                
+                // Draw corner accents
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2;
+                const cornerSize = 15;
+                
+                // Top-left
+                ctx.strokeRect(x, y, cornerSize, cornerSize);
+                // Top-right
+                ctx.strokeRect(x + w - cornerSize, y, cornerSize, cornerSize);
+                // Bottom-left
+                ctx.strokeRect(x, y + h - cornerSize, cornerSize, cornerSize);
+                // Bottom-right
+                ctx.strokeRect(x + w - cornerSize, y + h - cornerSize, cornerSize, cornerSize);
+            });
+        }
+        
+        // Update detection list in info panel
+        function updateDetectionList() {
+            if (detections.length === 0) {
+                detectionList.innerHTML = '<div style="color: #ffff00;">Scanning...</div>';
+                topDetection.style.display = 'none';
+                return;
+            }
+            
+            // Sort by confidence
+            const sorted = [...detections].sort((a, b) => b.confidence - a.confidence);
+            
+            // Update top detection
+            const topDet = sorted[0];
+            topName.textContent = topDet.label.toUpperCase();
+            topConfidence.textContent = (topDet.confidence * 100).toFixed(1) + '%';
+            topDetection.style.display = 'block';
+            
+            // Update detection list
+            let html = '';
+            sorted.slice(0, 5).forEach((det, index) => {
+                const confidence = (det.confidence * 100).toFixed(1);
+                html += `
+                    <div class="detection-item">
+                        <strong>${index + 1}. ${det.label}</strong><br>
+                        <span class="confidence">${confidence}%</span>
+                    </div>
+                `;
+            });
+            
+            if (detections.length > 5) {
+                html += `<div class="detection-item" style="color: #ffff00;">+${detections.length - 5} more objects</div>`;
+            }
+            
+            detectionList.innerHTML = html;
+        }
+        
+        // Toggle detection
+        toggleBtn.addEventListener('click', () => {
+            isDetecting = !isDetecting;
+            toggleBtn.textContent = isDetecting ? '🎥 STOP' : '🎥 PLAY';
+            statusBadge.textContent = isDetecting ? 'ACTIVE' : 'PAUSED';
+        });
+        
+        // Reset canvas
+        resetBtn.addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            detections = [];
+            detectionList.innerHTML = '<div style="color: #ffff00;">Scanning...</div>';
+            topDetection.style.display = 'none';
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+        
+        // Initialize on load
+        window.addEventListener('load', initializeDetector);
+    </script>
+</body>
+</html>
